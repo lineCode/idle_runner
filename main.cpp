@@ -425,12 +425,12 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	wcex.cbClsExtra		= 0;
 	wcex.cbWndExtra		= 0;
 	wcex.hInstance		= hInstance;
-	wcex.hIcon			= LoadIcon(hInstance, (LPCTSTR)IDI_TASKBARDEMO);
+	wcex.hIcon			= LoadIcon(hInstance, (LPCTSTR)IDI_EYEOPEN);
 	wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
 	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
 	wcex.lpszMenuName	= (LPCSTR)IDC_TASKBARDEMO;
 	wcex.lpszClassName	= MY_WND_CLS;
-	wcex.hIconSm		= LoadIcon(wcex.hInstance, (LPCTSTR)IDI_TASKBARDEMO);
+	wcex.hIconSm		= LoadIcon(wcex.hInstance, (LPCTSTR)IDI_EYEOPEN);
 
 	return RegisterClassExA(&wcex);
 }
@@ -494,7 +494,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                           hWnd,                            // Parent window
                           WM_ICON_NOTIFY,                  // Icon notify message to use
                           "This is a Tray Icon - Right click on me!",  // tooltip
-                          ::LoadIcon(hInstance, (LPCTSTR)IDI_TASKBARDEMO),
+                          ::LoadIcon(hInstance, (LPCTSTR)IDI_EYEOPEN),
                           IDR_POPUP_MENU)) 
     {
         LOG("Failed TrayIcon create");

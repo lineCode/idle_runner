@@ -24,16 +24,19 @@
     <ResourceCompile Include="main.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="res\TaskbarDemo.ICO">
-      <Filter>res</Filter>
-    </Image>
-  </ItemGroup>
-  <ItemGroup>
     <Filter Include="res">
       <UniqueIdentifier>{406d52e0-c7d5-4c42-9569-a8bba9c97f6b}</UniqueIdentifier>
     </Filter>
     <Filter Include="service">
       <UniqueIdentifier>{7f48cb4d-938d-4826-bd67-baf8b43da0c9}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="res\eye_closed.ico">
+      <Filter>res</Filter>
+    </Image>
+    <Image Include="res\eye_open.ico">
+      <Filter>res</Filter>
+    </Image>
   </ItemGroup>
 </Project>

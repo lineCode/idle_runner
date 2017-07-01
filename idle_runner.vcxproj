@@ -26,7 +26,8 @@
     <ResourceCompile Include="main.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="res\TaskbarDemo.ICO" />
+    <Image Include="res\eye_closed.ico" />
+    <Image Include="res\eye_open.ico" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{8FF7020C-FBE3-4EFB-BE51-320E271F0C35}</ProjectGuid>
