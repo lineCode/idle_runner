@@ -32,11 +32,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="res\eye_closed.ico">
-      <Filter>res</Filter>
-    </Image>
-    <Image Include="res\eye_open.ico">
-      <Filter>res</Filter>
-    </Image>
+    <Image Include="res\xeyes.ico" />
   </ItemGroup>
 </Project>

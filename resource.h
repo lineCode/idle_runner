@@ -15,12 +15,9 @@
 #define IDR_POPUP_MENU                  130
 #define IDI_ICON1                       130
 #define IDB_PNG2                        130
-#define IDI_ICON2                       131
-#define IDI_ICON3                       132
-#define IDI_EYEOPEN                     132
-#define IDI_ICON4                       133
-#define IDI_ICON5                       133
-#define IDI_EYECLOSED                   133
+#define IDI_GLASSES                     137
+#define IDI_XEYES                       139
+#define IDI_FIRE                        140
 #define ID_POPUP_OPTION1                32771
 #define ID_POPUP_OPTION2                32772
 #define ID_POPUP_ANIMATE                32773
@@ -38,7 +35,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        134
+#define _APS_NEXT_RESOURCE_VALUE        141
 #define _APS_NEXT_COMMAND_VALUE         32780
 #define _APS_NEXT_CONTROL_VALUE         1000
 #define _APS_NEXT_SYMED_VALUE           110

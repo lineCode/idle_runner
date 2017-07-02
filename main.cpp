@@ -11,14 +11,35 @@
 #define	WM_ICON_NOTIFY WM_APP+10
 #define MY_WND_CLS "shywndcls"
 
+#define WAIT_QUITE_SAMPLES 5 // 30
 
-bool isWatching = false;
+
+struct SharedData
+{
+    // data filled by the user tray app and read by the service
+    unsigned int runCounter;  // debug signal the ui is alive
+    int hadUserInput;  // 0/1 was there user input?
+    int samplingDisabled; // 0/1
+    int userAction;  // 0 - none,  1 - start now,  2 - stop now
+    
+    // filled in the service, read by the app
+    int processRunning; // 0/1
+};
+
+
+#define SHARED_BUF_SIZE 256
+#define SHARED_MEM_NAME "Global\\IdleRunnerShared"
+
+HANDLE g_hMapFile = NULL;
+SharedData* g_sharedData = NULL;
+
+
 
 class MySystemTray : public CSystemTray
 {
 protected:
     virtual void CustomizeMenu(HMENU hSubMenu) {
-        if (!isWatching)
+        if (g_sharedData->samplingDisabled)
         {
             ModifyMenu(hSubMenu, IDM_TOGGLEWATCHING, MF_BYCOMMAND | MF_STRING, IDM_TOGGLEWATCHING, "Start Watching");
         }
@@ -30,12 +51,11 @@ protected:
 };
 
 
-
-MySystemTray TrayIcon;
+bool g_isService = false;
+MySystemTray g_trayIcon;
 static PDH_HQUERY cpuQuery = 0;
 static PDH_HCOUNTER cpuTotal = 0;
 double maxCpu = 0;
-bool processRunning = false; 
 HWND hWnd = 0;
 
 // config
@@ -76,6 +96,11 @@ void readConfig()
     strcat(path, "\\config.txt");
 
     FILE* f = fopen(path, "r");
+    if (f == NULL) {
+        if (!g_isService)
+            MessageBoxA(NULL, "did not find config file", "Error", MB_OK);
+        return;
+    }
     fseek(f, 0, SEEK_END);
     int sz = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -124,21 +149,7 @@ void readConfig()
 }
 
 
-// data filled by the user tray app and read by the service
-struct SharedData
-{
-    unsigned int runCounter;  // debug signal the ui is alive
-    int hadUserInput;  // 0/1 was there user input?
-    int samplingEnabled; // 0/1
-    int userAction;  // 0 - none,  1 - start now,  2 - stop now
-};
 
-
-#define SHARED_BUF_SIZE 256
-#define SHARED_MEM_NAME "Global\\IdleRunnerShared"
-
-HANDLE g_hMapFile = NULL;
-SharedData* g_sharedData = NULL;
 
 // from service
 bool createSharedMem()
@@ -218,51 +229,38 @@ void closeSharedMem()
 
 
 
-void svcSampleFunc();
-
-DWORD WINAPI serviceSampleThread(LPVOID lpParameter)
-{
-    LOG("Sampling Thread");
-    while(true)
-    {
-        Sleep(1000);
-        svcSampleFunc();
-    }
-}
-
-void svcStartWatching()
-{
-    LOG("Starting sampling");
-    CreateThread(NULL, 0, serviceSampleThread, 0, 0, NULL);
-}
 
 void stopService();
 
 
 void uiStopWatching()
 {
+    LOG("stopping watching");
+    g_trayIcon.SetIcon(IDI_XEYES);
     KillTimer(hWnd, 1);
-    isWatching = false;
+    g_sharedData->samplingDisabled = true;
 }
 void uiStartWatching()
 {
+    LOG("starting watching");
+    g_trayIcon.SetIcon(IDI_GLASSES);
     SetTimer(hWnd, 1, 1000, NULL);
-    isWatching = true;
+    g_sharedData->samplingDisabled = false;
 }
 
-void uiStartProcess()
-{
 
-    uiStopWatching();
-}
 
 void uiStopProcess()
 {
-    uiStartWatching();
+    
 }
+
 
 void uiSampleFunc()
 {
+    if (g_sharedData->processRunning)
+        return;
+
     ++g_sharedData->runCounter;
 
     LASTINPUTINFO lii;
@@ -287,14 +285,36 @@ void uiSampleFunc()
 
 void svcStartProcess()
 {
+    g_sharedData->processRunning = 1;
 
+    STARTUPINFO si = { sizeof(STARTUPINFO) };
+    PROCESS_INFORMATION pi { 0 };
+    if (CreateProcessA(NULL, runProcess, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi) == 0) {
+        LOG("Failed creating process %d", GetLastError());
+    }
+    else
+    {
+        LOG("Created process %d waiting...", pi.dwProcessId);
+        CloseHandle(pi.hThread);
+        if (WaitForSingleObject(pi.hProcess, INFINITE) == WAIT_FAILED) {
+            LOG("Failed waiting for process");
+        }
+    }
+
+    g_sharedData->processRunning = 0;
 }
 
 
+int g_quiteSamples = 0; // count how many quite samples we've seen before starting the process
+
 void svcSampleFunc()
 {
+    if (g_sharedData->samplingDisabled)
+        return;
+
     if (g_sharedData->hadUserInput) {
         LOG("No  (%d): Input", g_sharedData->runCounter);
+        g_quiteSamples = 0;
         return;
     }
 
@@ -303,7 +323,7 @@ void svcSampleFunc()
     {
         if (PdhCollectQueryData(cpuQuery) == ERROR_SUCCESS)
         {
-            Sleep(100);
+            Sleep(100); // sample interval - don't want to sample between long intervals
             if (PdhCollectQueryData(cpuQuery) == ERROR_SUCCESS)
             {
                 PDH_FMT_COUNTERVALUE counterVal;
@@ -312,6 +332,7 @@ void svcSampleFunc()
                     cpuval = counterVal.doubleValue;
                     if (counterVal.doubleValue >= maxCpu) {
                         LOG("No  (%d): CPU %lf", g_sharedData->runCounter, counterVal.doubleValue);
+                        g_quiteSamples = 0;
                         return;
                     }
 
@@ -320,11 +341,34 @@ void svcSampleFunc()
         }
     }
 
-    LOG("Yes (%d): Input %d CPU %lf", g_sharedData->runCounter, g_sharedData->hadUserInput, cpuval);
+    ++g_quiteSamples;
+    LOG("Yes (%d, %d): Input %d CPU %lf", g_sharedData->runCounter, g_quiteSamples, g_sharedData->hadUserInput, cpuval);
 
-    svcStartProcess();
+    if (g_quiteSamples > WAIT_QUITE_SAMPLES) {
+        g_quiteSamples = 0;
+        svcStartProcess();
+    }
 
 }
+
+
+DWORD WINAPI serviceSampleThread(LPVOID lpParameter)
+{
+    LOG("Sampling Thread");
+    while(true)
+    {
+        Sleep(1000);
+        svcSampleFunc();
+    }
+}
+
+void svcStartWatching()
+{
+    LOG("Starting sampling");
+    CreateThread(NULL, 0, serviceSampleThread, 0, 0, NULL);
+}
+
+
 
 
 void initSampling()
@@ -380,7 +424,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	switch (message) 
 	{
         case WM_ICON_NOTIFY:
-            return TrayIcon.OnTrayNotification(wParam, lParam);
+            return g_trayIcon.OnTrayNotification(wParam, lParam);
 
 		case WM_COMMAND:
 			wmId    = LOWORD(wParam); 
@@ -389,7 +433,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			switch (wmId)
 			{
             case IDM_TOGGLEWATCHING: 
-                if (!isWatching) 
+                if (g_sharedData->samplingDisabled) 
                     uiStartWatching();
                 else
                     uiStopWatching();
@@ -425,12 +469,12 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	wcex.cbClsExtra		= 0;
 	wcex.cbWndExtra		= 0;
 	wcex.hInstance		= hInstance;
-	wcex.hIcon			= LoadIcon(hInstance, (LPCTSTR)IDI_EYEOPEN);
+	wcex.hIcon			= LoadIcon(hInstance, (LPCTSTR)IDI_GLASSES);
 	wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
 	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
 	wcex.lpszMenuName	= (LPCSTR)IDC_TASKBARDEMO;
 	wcex.lpszClassName	= MY_WND_CLS;
-	wcex.hIconSm		= LoadIcon(wcex.hInstance, (LPCTSTR)IDI_EYEOPEN);
+	wcex.hIconSm		= LoadIcon(wcex.hInstance, (LPCTSTR)IDI_GLASSES);
 
 	return RegisterClassExA(&wcex);
 }
@@ -490,11 +534,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         return 1;
     }
     
-    if (!TrayIcon.Create(hInstance,
+    if (!g_trayIcon.Create(hInstance,
                           hWnd,                            // Parent window
                           WM_ICON_NOTIFY,                  // Icon notify message to use
                           "This is a Tray Icon - Right click on me!",  // tooltip
-                          ::LoadIcon(hInstance, (LPCTSTR)IDI_EYEOPEN),
+                          ::LoadIcon(hInstance, (LPCTSTR)IDI_GLASSES),
                           IDR_POPUP_MENU)) 
     {
         LOG("Failed TrayIcon create");
@@ -549,6 +593,7 @@ void RunnerService::OnStart(DWORD dwArgc, LPWSTR *lpszArgv)
 {
     startLog("log_svc.txt");
     LOG("Started service");
+    g_isService = true;
 
     readConfig();
     initSampling();
@@ -603,16 +648,16 @@ void serviceCheck(const char* cmdLine)
         goto Cleanup;
     }
 
+    char szPath[MAX_PATH];
+    if (GetModuleFileNameA(NULL, szPath, ARRAYSIZE(szPath)) == 0)
+    {
+        LOG("GetModuleFileName failed");
+        goto Cleanup;
+    }
+
     SC_HANDLE svc = OpenServiceA(scm, SVC_NAME, SERVICE_ALL_ACCESS);
     if (svc == NULL)
     {
-        char szPath[MAX_PATH];
-        if (GetModuleFileNameA(NULL, szPath, ARRAYSIZE(szPath)) == 0)
-        {
-            LOG("GetModuleFileName failed");
-            goto Cleanup;
-        }
-
         LOG("No service exists, installing...");
 
         svc = CreateServiceA(
@@ -639,7 +684,15 @@ void serviceCheck(const char* cmdLine)
         LOG("Craeted the service " SVC_NAME);
     }
     else
+    {
         LOG("Service exists " SVC_NAME);
+        // make sure it points to this exe
+
+        if (ChangeServiceConfig(svc, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE , szPath, NULL, NULL, NULL, NULL, NULL, NULL) == 0) {
+            LOG("Failed ChangeServiceConfig %d", GetLastError());
+        }
+
+    }
 
     if (StartServiceW(svc, 0, NULL) == 0) {
         LOG("Failed StartService %x", GetLastError());
